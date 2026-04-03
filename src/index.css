@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: theme(colors.zinc.950);
+    color: theme(colors.zinc.100);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* React Flow overrides */
+  .react-flow__background {
+    background-color: theme(colors.zinc.950);
+  }
+
+  .react-flow__edge-path {
+    stroke-width: 2;
+  }
+}
