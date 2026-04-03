@@ -30,6 +30,9 @@ jobs:
         run: pnpm build
 
       - name: Deploy to GitHub Pages
-        run: pnpm deploy
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          pnpm exec gh-pages -d dist --dotfiles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
