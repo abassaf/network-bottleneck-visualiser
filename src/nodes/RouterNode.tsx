@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { RouterNodeData } from '../types/topology'
 import BaseNode from './BaseNode'
+
+type RouterFlowNode = Node<RouterNodeData, 'router'>
 
 const RouterIcon = () => (
   <svg
@@ -24,14 +26,13 @@ const RouterIcon = () => (
   </svg>
 )
 
-export default function RouterNode(props: NodeProps) {
-  const data = props.data as RouterNodeData
+export default function RouterNode({ id, data }: NodeProps<RouterFlowNode>) {
   const stat = `${data.routingCapMbps} Mbps · ${data.tier}`
 
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <BaseNode id={props.id} icon={<RouterIcon />} label={data.label} stat={stat} />
+      <BaseNode id={id} icon={<RouterIcon />} label={data.label} stat={stat} />
       <Handle type="source" position={Position.Bottom} />
     </>
   )

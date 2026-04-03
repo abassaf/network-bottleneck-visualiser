@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { ModemNodeData } from '../types/topology'
 import BaseNode from './BaseNode'
+
+type ModemFlowNode = Node<ModemNodeData, 'modem'>
 
 const BoxIcon = () => (
   <svg
@@ -19,14 +21,13 @@ const BoxIcon = () => (
   </svg>
 )
 
-export default function ModemNode(props: NodeProps) {
-  const data = props.data as ModemNodeData
+export default function ModemNode({ id, data }: NodeProps<ModemFlowNode>) {
   const stat = `${data.maxDownloadMbps} Mbps max`
 
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <BaseNode id={props.id} icon={<BoxIcon />} label={data.label} stat={stat} />
+      <BaseNode id={id} icon={<BoxIcon />} label={data.label} stat={stat} />
       <Handle type="source" position={Position.Bottom} />
     </>
   )
