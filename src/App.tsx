@@ -5,6 +5,7 @@ import TopologyCanvas from './components/TopologyCanvas'
 import NodeToolbar from './components/NodeToolbar'
 import ConfigPanel from './components/ConfigPanel'
 import ResultsPanel from './components/ResultsPanel'
+import PresetPicker from './components/PresetPicker'
 import { useTopologyStore, useAnalysisStore } from './store'
 import { analyseDevice } from './engine/bottleneckEngine'
 
@@ -140,7 +141,10 @@ export default function App() {
             </span>
           </div>
 
-          <AnalyseControls />
+          <div className="flex items-center gap-2">
+            <PresetPicker />
+            <AnalyseControls />
+          </div>
         </header>
 
         <main className="flex flex-1 overflow-hidden">
