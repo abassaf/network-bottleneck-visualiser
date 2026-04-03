@@ -1,5 +1,8 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import TopologyCanvas from './components/TopologyCanvas'
+import NodeToolbar from './components/NodeToolbar'
+import ConfigPanel from './components/ConfigPanel'
 
 export default function App() {
   return (
@@ -28,11 +31,10 @@ export default function App() {
           </div>
         </header>
 
-        {/* Canvas placeholder */}
-        <main className="flex-1 overflow-hidden">
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-zinc-500">Topology canvas loading…</p>
-          </div>
+        <main className="flex flex-1 overflow-hidden">
+          <NodeToolbar />
+          <TopologyCanvas />
+          <ConfigPanel />
         </main>
       </div>
     </ReactFlowProvider>
