@@ -2,21 +2,32 @@ import { useCallback, useMemo, useRef } from 'react'
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   type NodeMouseHandler,
-  type OnConnect,
-  type OnNodesChange,
-  type OnEdgesChange,
   type ReactFlowInstance,
 } from '@xyflow/react'
 import { useTopologyStore } from '../store'
 import { useAnalysisStore } from '../store'
 import { nodeTypes } from '../nodes'
-import type { TopologyNode, TopologyEdge } from '../types/topology'
+import type { NodeType, TopologyNode, TopologyEdge } from '../types/topology'
 
 // nodeTypes defined outside component to avoid re-renders on each render cycle
 const stableNodeTypes = nodeTypes
+const NODE_TYPES: NodeType[] = [
+  'isp',
+  'modem',
+  'router',
+  'accessPoint',
+  'switch',
+  'wiredDevice',
+  'wirelessDevice',
+]
+
+function isNodeType(value: string): value is NodeType {
+  return NODE_TYPES.includes(value as NodeType)
+}
 
 function getEdgeStyle(
   edge: TopologyEdge,
@@ -62,9 +73,9 @@ interface TopologyCanvasProps {
 export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps) {
   const nodes = useTopologyStore((s) => s.nodes)
   const edges = useTopologyStore((s) => s.edges)
-  const onNodesChange = useTopologyStore((s) => s.onNodesChange) as OnNodesChange<TopologyNode>
-  const onEdgesChange = useTopologyStore((s) => s.onEdgesChange) as OnEdgesChange<TopologyEdge>
-  const onConnect = useTopologyStore((s) => s.onConnect) as OnConnect
+  const onNodesChange = useTopologyStore((s) => s.onNodesChange)
+  const onEdgesChange = useTopologyStore((s) => s.onEdgesChange)
+  const onConnect = useTopologyStore((s) => s.onConnect)
   const selectNode = useTopologyStore((s) => s.selectNode)
   const addNode = useTopologyStore((s) => s.addNode)
 
@@ -141,6 +152,7 @@ export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps
       event.preventDefault()
       const nodeType = event.dataTransfer.getData('application/reactflow-nodetype')
       if (!nodeType || !reactFlowInstance.current || !reactFlowWrapper.current) return
+      if (!isNodeType(nodeType)) return
 
       const bounds = reactFlowWrapper.current.getBoundingClientRect()
       const position = reactFlowInstance.current.screenToFlowPosition({
@@ -148,10 +160,7 @@ export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps
         y: event.clientY - bounds.top,
       })
 
-      addNode(
-        nodeType as import('../types/topology').NodeType,
-        position,
-      )
+      addNode(nodeType, position)
     },
     [addNode],
   )
@@ -162,7 +171,7 @@ export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps
       className="flex-1 h-full bg-zinc-950"
       style={readonly ? { pointerEvents: 'none' } : undefined}
     >
-      <ReactFlow
+      <ReactFlow<TopologyNode, TopologyEdge>
         nodes={nodes}
         edges={styledEdges}
         onNodesChange={readonly ? undefined : onNodesChange}
@@ -173,7 +182,7 @@ export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps
         onDragOver={readonly ? undefined : onDragOver}
         onDrop={readonly ? undefined : onDrop}
         onInit={(instance) => {
-          reactFlowInstance.current = instance as ReactFlowInstance<TopologyNode, TopologyEdge>
+          reactFlowInstance.current = instance
         }}
         nodeTypes={stableNodeTypes}
         nodesDraggable={!readonly}
@@ -184,7 +193,7 @@ export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps
         deleteKeyCode={readonly ? null : 'Delete'}
         className="bg-zinc-950"
       >
-        <Background variant={'dots' as never} gap={24} size={1} color="#27272a" />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#27272a" />
         <Controls className="[&>button]:bg-zinc-800 [&>button]:border-zinc-700 [&>button]:text-zinc-300 [&>button:hover]:bg-zinc-700" />
         <MiniMap
           bgColor="#09090b"

@@ -23,9 +23,24 @@ export default function BaseNode({ id, icon, label, stat, children }: BaseNodePr
     selectNode(id)
   }, [id, selectNode])
 
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        selectNode(id)
+      }
+    },
+    [id, selectNode],
+  )
+
   return (
     <div
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`${label}${isBottleneck ? ', bottleneck node' : ''}`}
       className={[
         'relative flex flex-col items-center gap-1 rounded-xl border bg-zinc-900 px-3 py-2.5 shadow-lg cursor-pointer transition-all duration-150 select-none min-w-[120px]',
         isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-zinc-700',
@@ -74,6 +89,7 @@ export default function BaseNode({ id, icon, label, stat, children }: BaseNodePr
       </span>
 
       {children}
+      {isBottleneck && <span className="sr-only">Bottleneck node</span>}
     </div>
   )
 }

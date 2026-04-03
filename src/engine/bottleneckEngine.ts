@@ -10,10 +10,7 @@
 import type {
   TopologyGraph,
   TopologyNode,
-  NodeData,
-  RouterNodeData,
-  AccessPointNodeData,
-  WirelessDeviceNodeData,
+  IspNodeData,
   BottleneckResult,
   Hop,
   Fix,
@@ -22,6 +19,7 @@ import type {
 import {
   getWifiThroughput,
   DISTANCE_MULTIPLIER,
+  getWiredThroughput,
 } from './throughputTables'
 
 // ─── Internal graph representation ───────────────────────────────────────────
@@ -30,6 +28,68 @@ interface AdjNode {
   nodeId: NodeId
   connectionType: 'wired' | 'wireless'
   edgeId: string
+}
+
+interface CapDetails {
+  mbps: number
+  label: string
+  notes: string
+}
+
+function isEndDeviceNode(node: TopologyNode): boolean {
+  return node.data.nodeType === 'wiredDevice' || node.data.nodeType === 'wirelessDevice'
+}
+
+function isIspNode(node: TopologyNode): node is TopologyNode & { data: IspNodeData } {
+  return node.data.nodeType === 'isp'
+}
+
+function buildUndirectedEdgeKey(a: NodeId, b: NodeId): string {
+  return a < b ? `${a}::${b}` : `${b}::${a}`
+}
+
+function formatPortSpeed(speedMbps: number): string {
+  return speedMbps >= 1000 ? `${speedMbps / 1000} Gbps` : `${speedMbps} Mbps`
+}
+
+function getNodeWiredPortSpeed(node: TopologyNode, peer: TopologyNode): number | null {
+  const data = node.data
+
+  switch (data.nodeType) {
+    case 'isp':
+      return Infinity
+    case 'modem':
+      // Modelled as modem WAN/LAN port capability in absence of explicit port fields.
+      return Math.min(Math.max(data.maxDownloadMbps, 100), 10000)
+    case 'router':
+      return peer.data.nodeType === 'isp' || peer.data.nodeType === 'modem'
+        ? data.wanPortSpeedMbps
+        : data.lanPortSpeedMbps
+    case 'switch':
+      return data.portSpeedMbps
+    case 'accessPoint':
+      // Most consumer AP/router LAN uplinks are 1 Gbps unless explicitly modelled.
+      return 1000
+    case 'wiredDevice':
+      return data.nicSpeedMbps
+    case 'wirelessDevice':
+      return null
+  }
+}
+
+function computeWiredEdgeCap(fromNode: TopologyNode, toNode: TopologyNode): CapDetails | null {
+  const fromPortSpeed = getNodeWiredPortSpeed(fromNode, toNode)
+  const toPortSpeed = getNodeWiredPortSpeed(toNode, fromNode)
+  if (fromPortSpeed === null || toPortSpeed === null) return null
+
+  const limitingPortSpeed = Math.min(fromPortSpeed, toPortSpeed)
+  const effectiveMbps = Math.round(getWiredThroughput(fromPortSpeed, toPortSpeed))
+
+  return {
+    mbps: effectiveMbps,
+    label: `Wired link (${formatPortSpeed(limitingPortSpeed)})`,
+    notes: `${formatPortSpeed(limitingPortSpeed)} Ethernet between ${fromNode.data.label} and ${toNode.data.label} delivers ~${effectiveMbps} Mbps effective throughput after overhead.`,
+  }
 }
 
 function buildAdjacency(graph: TopologyGraph): Map<NodeId, AdjNode[]> {
@@ -45,14 +105,12 @@ function buildAdjacency(graph: TopologyGraph): Map<NodeId, AdjNode[]> {
   return adj
 }
 
-function findIspNode(graph: TopologyGraph): TopologyNode | null {
-  return graph.nodes.find((n) => n.data.nodeType === 'isp') ?? null
+function findIspNode(graph: TopologyGraph): (TopologyNode & { data: IspNodeData }) | null {
+  return graph.nodes.find(isIspNode) ?? null
 }
 
 function findEndDevices(graph: TopologyGraph): TopologyNode[] {
-  return graph.nodes.filter(
-    (n) => n.data.nodeType === 'wiredDevice' || n.data.nodeType === 'wirelessDevice',
-  )
+  return graph.nodes.filter(isEndDeviceNode)
 }
 
 // ─── Per-hop throughput computation ──────────────────────────────────────────
@@ -61,8 +119,8 @@ function findEndDevices(graph: TopologyGraph): TopologyNode[] {
  * Computes the throughput cap imposed by a single node, given the incoming
  * throughput from the previous hop.
  */
-function computeNodeCap(node: TopologyNode): { mbps: number; label: string; notes: string } {
-  const data: NodeData = node.data
+function computeNodeCap(node: TopologyNode): CapDetails {
+  const data = node.data
 
   switch (data.nodeType) {
     case 'isp':
@@ -80,23 +138,21 @@ function computeNodeCap(node: TopologyNode): { mbps: number; label: string; note
       }
 
     case 'router': {
-      const routerData = data as RouterNodeData
       // Routing cap is the lower of: software routing throughput OR WAN port speed
-      const cap = Math.min(routerData.routingCapMbps, routerData.wanPortSpeedMbps)
-      const tierLabel = routerData.tier === 'budget' ? 'budget' : routerData.tier === 'midRange' ? 'mid-range' : 'high-end'
+      const cap = Math.min(data.routingCapMbps, data.wanPortSpeedMbps)
+      const tierLabel = data.tier === 'budget' ? 'budget' : data.tier === 'midRange' ? 'mid-range' : 'high-end'
       return {
         mbps: cap,
-        label: `Router (${routerData.model})`,
+        label: `Router (${data.model})`,
         notes:
-          routerData.routingCapMbps < routerData.wanPortSpeedMbps
-            ? `${routerData.model} is a ${tierLabel} router with a software routing cap of ~${routerData.routingCapMbps} Mbps due to CPU limitations.`
-            : `${routerData.model} routes at ${cap} Mbps (limited by WAN port speed).`,
+          data.routingCapMbps < data.wanPortSpeedMbps
+            ? `${data.model} is a ${tierLabel} router with a software routing cap of ~${data.routingCapMbps} Mbps due to CPU limitations.`
+            : `${data.model} routes at ${cap} Mbps (limited by WAN port speed).`,
       }
     }
 
     case 'accessPoint': {
-      const apData = data as AccessPointNodeData
-      const wifi = getWifiThroughput(apData.protocol, apData.band, apData.channelWidth, apData.streams)
+      const wifi = getWifiThroughput(data.protocol, data.band, data.channelWidth, data.streams)
       const protocolLabel: Record<string, string> = {
         wifi4: 'Wi-Fi 4 (802.11n)',
         wifi5: 'Wi-Fi 5 (802.11ac)',
@@ -106,7 +162,7 @@ function computeNodeCap(node: TopologyNode): { mbps: number; label: string; note
       return {
         mbps: wifi.realWorldMbps,
         label: wifi.label,
-        notes: `${apData.model} on ${apData.band} ${apData.channelWidth}MHz channel using ${protocolLabel[apData.protocol] ?? apData.protocol} achieves ~${wifi.realWorldMbps} Mbps real-world throughput (theoretical max: ${wifi.theoreticalMbps} Mbps).`,
+        notes: `${data.model} on ${data.band} ${data.channelWidth}MHz channel using ${protocolLabel[data.protocol] ?? data.protocol} achieves ~${wifi.realWorldMbps} Mbps real-world throughput (theoretical max: ${wifi.theoreticalMbps} Mbps).`,
       }
     }
 
@@ -127,16 +183,15 @@ function computeNodeCap(node: TopologyNode): { mbps: number; label: string; note
       }
 
     case 'wirelessDevice': {
-      const devData = data as WirelessDeviceNodeData
       // Device capability: use device's protocol + band + streams, but channel width
       // is set by the AP — we use 80MHz as a reasonable default for the device side.
-      const wifi = getWifiThroughput(devData.protocol, devData.band, 80, devData.streams)
-      const distanceMultiplier = DISTANCE_MULTIPLIER[devData.distance]
+      const wifi = getWifiThroughput(data.protocol, data.band, 80, data.streams)
+      const distanceMultiplier = DISTANCE_MULTIPLIER[data.distance]
       const effectiveMbps = Math.round(wifi.realWorldMbps * distanceMultiplier)
-      const distanceLabel = { close: 'close range', medium: 'medium range', far: 'far range' }[devData.distance]
+      const distanceLabel = { close: 'close range', medium: 'medium range', far: 'far range' }[data.distance]
       return {
         mbps: effectiveMbps,
-        label: `Wireless NIC (${devData.protocol} · ${distanceLabel})`,
+        label: `Wireless NIC (${data.protocol} · ${distanceLabel})`,
         notes: `Device Wi-Fi adapter at ${distanceLabel} achieves ~${effectiveMbps} Mbps (${Math.round(distanceMultiplier * 100)}% of ${wifi.realWorldMbps} Mbps peak due to distance).`,
       }
     }
@@ -157,6 +212,7 @@ function findPath(
   startId: NodeId,
   targetId: NodeId,
   adj: Map<NodeId, AdjNode[]>,
+  nodeMap: Map<NodeId, TopologyNode>,
 ): TraversalPath | null {
   const visited = new Set<NodeId>([startId])
   const queue: { nodeId: NodeId; path: NodeId[] }[] = [{ nodeId: startId, path: [startId] }]
@@ -166,7 +222,17 @@ function findPath(
     if (current.nodeId === targetId) {
       return { nodeIds: current.path }
     }
+
+    const currentNode = nodeMap.get(current.nodeId)
+    if (currentNode && current.nodeId !== targetId && isEndDeviceNode(currentNode)) {
+      continue
+    }
+
     for (const neighbour of adj.get(current.nodeId) ?? []) {
+      const neighbourNode = nodeMap.get(neighbour.nodeId)
+      if (neighbourNode && neighbour.nodeId !== targetId && isEndDeviceNode(neighbourNode)) {
+        continue
+      }
       if (!visited.has(neighbour.nodeId)) {
         visited.add(neighbour.nodeId)
         queue.push({ nodeId: neighbour.nodeId, path: [...current.path, neighbour.nodeId] })
@@ -188,16 +254,15 @@ function generateFixes(
 
   switch (data.nodeType) {
     case 'router': {
-      const routerData = data as RouterNodeData
-      if (routerData.tier === 'budget') {
+      if (data.tier === 'budget') {
         fixes.push({
           title: 'Upgrade to a mid-range router',
-          description: `Replace ${routerData.model} with a mid-range router (e.g. ASUS RT-AX58U, TP-Link Archer AX73). Mid-range routers achieve ~940 Mbps routing throughput.`,
+          description: `Replace ${data.model} with a mid-range router (e.g. ASUS RT-AX58U, TP-Link Archer AX73). Mid-range routers achieve ~940 Mbps routing throughput.`,
           estimatedNewMbps: Math.min(940, ispMbps),
           difficulty: '$$',
         })
       }
-      if (routerData.tier !== 'highEnd') {
+      if (data.tier !== 'highEnd') {
         fixes.push({
           title: 'Enable hardware NAT/acceleration',
           description: 'Check your router settings for "Hardware NAT", "CTF", or "Flow-based forwarding" — this can increase routing throughput by 30–50% on some models at no cost.',
@@ -208,27 +273,26 @@ function generateFixes(
       break
     }
     case 'accessPoint': {
-      const apData = data as AccessPointNodeData
-      if (apData.protocol === 'wifi4' || apData.protocol === 'wifi5') {
+      if (data.protocol === 'wifi4' || data.protocol === 'wifi5') {
         const upgradedWifi = getWifiThroughput('wifi6', '5GHz', 80, 2)
         fixes.push({
           title: 'Upgrade to Wi-Fi 6 access point',
-          description: `Replace your ${apData.protocol === 'wifi4' ? 'Wi-Fi 4' : 'Wi-Fi 5'} AP with a Wi-Fi 6 model (e.g. ASUS RT-AX58U, TP-Link Deco XE75). Wi-Fi 6 on 80MHz 5GHz achieves ~${upgradedWifi.realWorldMbps} Mbps.`,
+          description: `Replace your ${data.protocol === 'wifi4' ? 'Wi-Fi 4' : 'Wi-Fi 5'} AP with a Wi-Fi 6 model (e.g. ASUS RT-AX58U, TP-Link Deco XE75). Wi-Fi 6 on 80MHz 5GHz achieves ~${upgradedWifi.realWorldMbps} Mbps.`,
           estimatedNewMbps: Math.min(upgradedWifi.realWorldMbps, ispMbps),
           difficulty: '$$',
         })
       }
-      if (apData.channelWidth < 80 && apData.band === '5GHz') {
-        const widerWifi = getWifiThroughput(apData.protocol, apData.band, 80, apData.streams)
+      if (data.channelWidth < 80 && data.band === '5GHz') {
+        const widerWifi = getWifiThroughput(data.protocol, data.band, 80, data.streams)
         fixes.push({
           title: 'Widen Wi-Fi channel to 80MHz',
-          description: `Change your AP channel width from ${apData.channelWidth}MHz to 80MHz in the router/AP settings. This can roughly double your Wi-Fi throughput if spectrum is available.`,
+          description: `Change your AP channel width from ${data.channelWidth}MHz to 80MHz in the router/AP settings. This can roughly double your Wi-Fi throughput if spectrum is available.`,
           estimatedNewMbps: Math.min(widerWifi.realWorldMbps, ispMbps),
           difficulty: 'Easy',
         })
       }
-      if (apData.band === '2.4GHz') {
-        const fiveGhzWifi = getWifiThroughput(apData.protocol === 'wifi4' ? 'wifi5' : apData.protocol, '5GHz', 80, apData.streams)
+      if (data.band === '2.4GHz') {
+        const fiveGhzWifi = getWifiThroughput(data.protocol === 'wifi4' ? 'wifi5' : data.protocol, '5GHz', 80, data.streams)
         fixes.push({
           title: 'Switch device to 5GHz band',
           description: '2.4GHz is congested and limited to ~300 Mbps maximum. Connect to the 5GHz network instead — it offers significantly higher throughput and less interference.',
@@ -245,12 +309,11 @@ function generateFixes(
         estimatedNewMbps: Math.min(940, ispMbps),
         difficulty: 'Easy',
       })
-      const devData = data as WirelessDeviceNodeData
-      if (devData.distance === 'far' || devData.distance === 'medium') {
+      if (data.distance === 'far' || data.distance === 'medium') {
         fixes.push({
           title: 'Move device closer to AP or add a mesh node',
           description: 'Distance significantly degrades Wi-Fi performance. Moving the device closer (or adding a Wi-Fi mesh node) can recover 30–60% of peak throughput.',
-          estimatedNewMbps: Math.min(Math.round(effectiveMbps / DISTANCE_MULTIPLIER[devData.distance]), ispMbps),
+          estimatedNewMbps: Math.min(Math.round(effectiveMbps / DISTANCE_MULTIPLIER[data.distance]), ispMbps),
           difficulty: 'Easy',
         })
       }
@@ -311,25 +374,22 @@ function buildExplanation(
       return `Your modem (${data.model}) is capping throughput at ${data.maxDownloadMbps} Mbps, which is below your ${ispMbps} Mbps plan speed.`
 
     case 'router': {
-      const routerData = data as RouterNodeData
-      const tierLabel = routerData.tier === 'budget' ? 'budget' : routerData.tier === 'midRange' ? 'mid-range' : 'high-end'
-      return `Your ${tierLabel} router (${routerData.model}) is limiting throughput to ~${roundedMbps} Mbps due to its software routing cap — your ${ispMbps} Mbps plan can't be fully utilised.`
+      const tierLabel = data.tier === 'budget' ? 'budget' : data.tier === 'midRange' ? 'mid-range' : 'high-end'
+      return `Your ${tierLabel} router (${data.model}) is limiting throughput to ~${roundedMbps} Mbps due to its software routing cap — your ${ispMbps} Mbps plan can't be fully utilised.`
     }
 
     case 'accessPoint': {
-      const apData = data as AccessPointNodeData
       const protocolLabel: Record<string, string> = {
         wifi4: 'Wi-Fi 4 (802.11n)',
         wifi5: 'Wi-Fi 5 (802.11ac)',
         wifi6: 'Wi-Fi 6 (802.11ax)',
         wifi6e: 'Wi-Fi 6E',
       }
-      return `Your ${protocolLabel[apData.protocol] ?? apData.protocol} access point on ${apData.channelWidth}MHz ${apData.band} is capping your wireless connection at ~${roundedMbps} Mbps — your ${ispMbps} Mbps plan can't reach devices wirelessly.`
+      return `Your ${protocolLabel[data.protocol] ?? data.protocol} access point on ${data.channelWidth}MHz ${data.band} is capping your wireless connection at ~${roundedMbps} Mbps — your ${ispMbps} Mbps plan can't reach devices wirelessly.`
     }
 
     case 'wirelessDevice': {
-      const devData = data as WirelessDeviceNodeData
-      const distanceLabel = { close: 'close', medium: 'medium', far: 'far' }[devData.distance]
+      const distanceLabel = { close: 'close', medium: 'medium', far: 'far' }[data.distance]
       return `Your wireless device at ${distanceLabel} range is achieving ~${roundedMbps} Mbps. Moving it closer or upgrading to a wired connection would significantly increase throughput.`
     }
 
@@ -370,14 +430,17 @@ export function runBottleneckEngine(graph: TopologyGraph): EngineResult {
     return { ok: false, error: { type: 'NO_DEVICES', message: 'Add at least one wired or wireless device to analyse.' } }
   }
 
-  const adj = buildAdjacency(graph)
   const nodeMap = new Map<NodeId, TopologyNode>(graph.nodes.map((n) => [n.id, n]))
-  const ispMbps = (ispNode.data as { downloadMbps: number }).downloadMbps
+  const edgeMap = new Map<string, (typeof graph.edges)[number]>(
+    graph.edges.map((edge) => [buildUndirectedEdgeKey(edge.source, edge.target), edge]),
+  )
+  const adj = buildAdjacency(graph)
+  const ispMbps = ispNode.data.downloadMbps
 
   const results: BottleneckResult[] = []
 
   for (const device of endDevices) {
-    const path = findPath(ispNode.id, device.id, adj)
+    const path = findPath(ispNode.id, device.id, adj, nodeMap)
     if (!path) continue // device not connected to ISP
 
     const hops: Hop[] = []
@@ -392,15 +455,31 @@ export function runBottleneckEngine(graph: TopologyGraph): EngineResult {
       const node = nodeMap.get(nodeId)
       if (!node) continue
 
-      const { mbps, label, notes } = computeNodeCap(node)
+      const nodeCap = computeNodeCap(node)
+      let appliedCap: CapDetails = nodeCap
+
+      if (i > 0) {
+        const prevNodeId = path.nodeIds[i - 1]
+        const prevNode = nodeMap.get(prevNodeId)
+        if (!prevNode) continue
+
+        const edge = edgeMap.get(buildUndirectedEdgeKey(prevNodeId, nodeId))
+        const connectionType = edge?.data?.connectionType ?? 'wired'
+        if (connectionType === 'wired') {
+          const wiredEdgeCap = computeWiredEdgeCap(prevNode, node)
+          if (wiredEdgeCap && wiredEdgeCap.mbps < appliedCap.mbps) {
+            appliedCap = wiredEdgeCap
+          }
+        }
+      }
 
       // When this node's cap drops below the current running minimum,
       // it becomes the new bottleneck.
-      if (mbps < runningMin) {
-        runningMin = mbps
+      if (appliedCap.mbps < runningMin) {
+        runningMin = appliedCap.mbps
         limitingNodeId = nodeId
-        limitingLabel = label
-        limitingNotes = notes
+        limitingLabel = appliedCap.label
+        limitingNotes = appliedCap.notes
       }
 
       if (i > 0) {
@@ -420,7 +499,8 @@ export function runBottleneckEngine(graph: TopologyGraph): EngineResult {
 
     // The bottleneck is the node that imposed the minimum — tracked directly above.
     const bottleneckNodeId = limitingNodeId
-    const bottleneckNode = nodeMap.get(bottleneckNodeId)!
+    const bottleneckNode = nodeMap.get(bottleneckNodeId)
+    if (!bottleneckNode) continue
     const effectiveMbps = Math.round(runningMin)
 
     results.push({
