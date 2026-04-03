@@ -21,22 +21,38 @@ const stableNodeTypes = nodeTypes
 function getEdgeStyle(
   edge: TopologyEdge,
   bottleneckChainEdgeIds: Set<string>,
+  bottleneckEdgeId: string | null,
   postBottleneckEdgeIds: Set<string>,
+  hasAnalysis: boolean,
 ): { stroke: string; strokeWidth: number; strokeDasharray?: string; opacity?: number } {
   const connectionType = edge.data?.connectionType ?? 'wired'
+
+  // No active analysis — restore default styling
+  if (!hasAnalysis) {
+    if (connectionType === 'wireless') {
+      return { stroke: 'rgba(59,130,246,0.5)', strokeWidth: 2, strokeDasharray: '6 4' }
+    }
+    return { stroke: '#52525b', strokeWidth: 2 }
+  }
+
+  const isBottleneckEdge = bottleneckEdgeId === edge.id
   const isInChain = bottleneckChainEdgeIds.has(edge.id)
   const isPostBottleneck = postBottleneckEdgeIds.has(edge.id)
 
-  if (isPostBottleneck) {
-    return { stroke: '#a1a1aa', strokeWidth: 2, opacity: 0.3 }
+  // Edge leading to the bottleneck node — red and thick
+  if (isBottleneckEdge) {
+    return { stroke: '#ef4444', strokeWidth: 3 }
   }
+  // Edges along the analysis path before the bottleneck — blue
   if (isInChain) {
-    return { stroke: '#3b82f6', strokeWidth: 2.5 }
+    return { stroke: '#3b82f6', strokeWidth: 3 }
   }
-  if (connectionType === 'wireless') {
-    return { stroke: 'rgba(59,130,246,0.5)', strokeWidth: 2, strokeDasharray: '6 4' }
+  // Edges after the bottleneck or outside the path — dim
+  if (isPostBottleneck) {
+    return { stroke: '#3f3f46', strokeWidth: 2, opacity: 0.3 }
   }
-  return { stroke: '#52525b', strokeWidth: 2 }
+  // Edges entirely outside the analysis path — dimmed
+  return { stroke: '#3f3f46', strokeWidth: 2, opacity: 0.3 }
 }
 
 export default function TopologyCanvas() {
@@ -53,9 +69,10 @@ export default function TopologyCanvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const reactFlowInstance = useRef<ReactFlowInstance<TopologyNode, TopologyEdge> | null>(null)
 
-  // Build sets of edge IDs in the bottleneck chain and after bottleneck
+  // Build sets of edge IDs for chain highlight, bottleneck edge, and post-bottleneck dims
   const bottleneckChainEdgeIds = new Set<string>()
   const postBottleneckEdgeIds = new Set<string>()
+  let bottleneckEdgeId: string | null = null
 
   if (analysisResult) {
     const chain = analysisResult.chain
@@ -76,15 +93,25 @@ export default function TopologyCanvas() {
         }
       }
       if (hop.toId === bottleneckNodeId) {
+        // The edge whose destination is the bottleneck node gets red treatment
+        if (matchingEdge) {
+          bottleneckEdgeId = matchingEdge.id
+          // Remove from blue chain set — it will be rendered red instead
+          bottleneckChainEdgeIds.delete(matchingEdge.id)
+        }
         pastBottleneck = true
       }
     }
   }
 
+  const hasAnalysis = analysisResult !== null
+
   const styledEdges = edges.map((edge) => ({
     ...edge,
-    style: getEdgeStyle(edge, bottleneckChainEdgeIds, postBottleneckEdgeIds),
-    animated: edge.data?.connectionType === 'wireless',
+    style: getEdgeStyle(edge, bottleneckChainEdgeIds, bottleneckEdgeId, postBottleneckEdgeIds, hasAnalysis),
+    animated: hasAnalysis
+      ? bottleneckChainEdgeIds.has(edge.id) || bottleneckEdgeId === edge.id
+      : edge.data?.connectionType === 'wireless',
   }))
 
   const onNodeClick: NodeMouseHandler<TopologyNode> = useCallback(
