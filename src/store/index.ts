@@ -15,7 +15,7 @@ import type {
   TopologyEdge,
   NodeData,
   NodeType,
-  EdgeData,
+
   BottleneckResult,
 } from '../types/topology'
 
@@ -65,6 +65,22 @@ function defaultNodeData(type: NodeType): NodeData {
 
 let nodeCounter = 1
 
+function cloneNodes(nodes: TopologyNode[]): TopologyNode[] {
+  return nodes.map((node) => ({ ...node, data: { ...node.data } }))
+}
+
+function cloneEdges(edges: TopologyEdge[]): TopologyEdge[] {
+  return edges.map((edge) => ({
+    ...edge,
+    data: edge.data ? { ...edge.data } : undefined,
+  }))
+}
+
+function stripNodeTypeFromPatch(patch: Partial<NodeData>): Partial<NodeData> {
+  const { nodeType: _ignored, ...safePatch } = patch
+  return safePatch
+}
+
 // ─── Topology store ───────────────────────────────────────────────────────────
 
 interface TopologyStore {
@@ -98,14 +114,16 @@ export const useTopologyStore = create<TopologyStore>((set, get) => ({
   },
 
   onConnect: (connection: Connection) => {
+    if (!connection.source || !connection.target) return
+
     const edge: TopologyEdge = {
       ...connection,
       id: `e-${connection.source}-${connection.target}`,
-      data: { connectionType: 'wired' } as EdgeData,
+      data: { connectionType: 'wired' },
       animated: false,
       style: { stroke: '#3f3f46', strokeWidth: 2 },
     }
-    set({ edges: addEdge(edge, get().edges as TopologyEdge[]) })
+    set({ edges: addEdge(edge, get().edges) })
   },
 
   addNode: (type: NodeType, position: { x: number; y: number }) => {
@@ -120,9 +138,10 @@ export const useTopologyStore = create<TopologyStore>((set, get) => ({
   },
 
   updateNodeData: (id: string, patch: Partial<NodeData>) => {
+    const safePatch = stripNodeTypeFromPatch(patch)
     set({
       nodes: get().nodes.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, ...patch } as NodeData } : n,
+        n.id === id ? { ...n, data: { ...n.data, ...safePatch } as NodeData } : n,
       ),
     })
   },
@@ -140,7 +159,7 @@ export const useTopologyStore = create<TopologyStore>((set, get) => ({
   },
 
   loadTopology: (nodes: TopologyNode[], edges: TopologyEdge[]) => {
-    set({ nodes, edges, selectedNodeId: null })
+    set({ nodes: cloneNodes(nodes), edges: cloneEdges(edges), selectedNodeId: null })
   },
 
   reset: () => {
@@ -195,8 +214,8 @@ export const useComparisonStore = create<ComparisonStore>((set, get) => ({
     // Deep-clone so after state is fully independent
     set({
       isComparing: true,
-      afterNodes: nodes.map((n) => ({ ...n, data: { ...n.data } })),
-      afterEdges: edges.map((e) => ({ ...e, data: { ...e.data } as EdgeData })),
+      afterNodes: cloneNodes(nodes),
+      afterEdges: cloneEdges(edges),
       afterResult: null,
     })
   },
@@ -206,9 +225,10 @@ export const useComparisonStore = create<ComparisonStore>((set, get) => ({
   },
 
   updateAfterNode: (id, patch) => {
+    const safePatch = stripNodeTypeFromPatch(patch)
     set({
       afterNodes: get().afterNodes.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, ...patch } as NodeData } : n,
+        n.id === id ? { ...n, data: { ...n.data, ...safePatch } as NodeData } : n,
       ),
     })
   },

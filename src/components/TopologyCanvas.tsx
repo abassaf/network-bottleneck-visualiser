@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -73,50 +73,52 @@ export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const reactFlowInstance = useRef<ReactFlowInstance<TopologyNode, TopologyEdge> | null>(null)
 
-  // Build sets of edge IDs for chain highlight, bottleneck edge, and post-bottleneck dims
-  const bottleneckChainEdgeIds = new Set<string>()
-  const postBottleneckEdgeIds = new Set<string>()
-  let bottleneckEdgeId: string | null = null
+  // Build edge highlight sets — memoised so they only recompute when edges or result change
+  const { bottleneckChainEdgeIds, postBottleneckEdgeIds, bottleneckEdgeId, hasAnalysis } =
+    useMemo(() => {
+      const chainIds = new Set<string>()
+      const postIds = new Set<string>()
+      let bnEdgeId: string | null = null
 
-  if (analysisResult) {
-    const chain = analysisResult.chain
-    const bottleneckNodeId = analysisResult.bottleneckNodeId
-    let pastBottleneck = false
-
-    for (const hop of chain) {
-      const matchingEdge = edges.find(
-        (e) =>
-          (e.source === hop.fromId && e.target === hop.toId) ||
-          (e.source === hop.toId && e.target === hop.fromId),
-      )
-      if (matchingEdge) {
-        if (pastBottleneck) {
-          postBottleneckEdgeIds.add(matchingEdge.id)
-        } else {
-          bottleneckChainEdgeIds.add(matchingEdge.id)
+      if (analysisResult) {
+        const { chain, bottleneckNodeId } = analysisResult
+        let pastBottleneck = false
+        for (const hop of chain) {
+          const matchingEdge = edges.find(
+            (e) =>
+              (e.source === hop.fromId && e.target === hop.toId) ||
+              (e.source === hop.toId && e.target === hop.fromId),
+          )
+          if (matchingEdge) {
+            if (pastBottleneck) {
+              postIds.add(matchingEdge.id)
+            } else {
+              chainIds.add(matchingEdge.id)
+            }
+          }
+          if (hop.toId === bottleneckNodeId && matchingEdge) {
+            bnEdgeId = matchingEdge.id
+            chainIds.delete(matchingEdge.id)
+            pastBottleneck = true
+          }
         }
       }
-      if (hop.toId === bottleneckNodeId) {
-        // The edge whose destination is the bottleneck node gets red treatment
-        if (matchingEdge) {
-          bottleneckEdgeId = matchingEdge.id
-          // Remove from blue chain set — it will be rendered red instead
-          bottleneckChainEdgeIds.delete(matchingEdge.id)
-        }
-        pastBottleneck = true
+
+      return {
+        bottleneckChainEdgeIds: chainIds,
+        postBottleneckEdgeIds: postIds,
+        bottleneckEdgeId: bnEdgeId,
+        hasAnalysis: analysisResult !== null,
       }
-    }
-  }
+    }, [analysisResult, edges])
 
-  const hasAnalysis = analysisResult !== null
-
-  const styledEdges = edges.map((edge) => ({
+  const styledEdges = useMemo(() => edges.map((edge) => ({
     ...edge,
     style: getEdgeStyle(edge, bottleneckChainEdgeIds, bottleneckEdgeId, postBottleneckEdgeIds, hasAnalysis),
     animated: hasAnalysis
       ? bottleneckChainEdgeIds.has(edge.id) || bottleneckEdgeId === edge.id
       : edge.data?.connectionType === 'wireless',
-  }))
+  })), [edges, bottleneckChainEdgeIds, postBottleneckEdgeIds, bottleneckEdgeId, hasAnalysis])
 
   const onNodeClick: NodeMouseHandler<TopologyNode> = useCallback(
     (_event, node) => {

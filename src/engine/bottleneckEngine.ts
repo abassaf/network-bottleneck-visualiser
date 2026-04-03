@@ -382,6 +382,10 @@ export function runBottleneckEngine(graph: TopologyGraph): EngineResult {
 
     const hops: Hop[] = []
     let runningMin = Infinity
+    // Track which node is currently imposing the minimum — this IS the bottleneck.
+    let limitingNodeId: NodeId = ispNode.id
+    let limitingLabel = ''
+    let limitingNotes = ''
 
     for (let i = 0; i < path.nodeIds.length; i++) {
       const nodeId = path.nodeIds[i]
@@ -390,37 +394,34 @@ export function runBottleneckEngine(graph: TopologyGraph): EngineResult {
 
       const { mbps, label, notes } = computeNodeCap(node)
 
+      // When this node's cap drops below the current running minimum,
+      // it becomes the new bottleneck.
+      if (mbps < runningMin) {
+        runningMin = mbps
+        limitingNodeId = nodeId
+        limitingLabel = label
+        limitingNotes = notes
+      }
+
       if (i > 0) {
         const prevNodeId = path.nodeIds[i - 1]
-        runningMin = Math.min(runningMin, mbps)
         hops.push({
           fromId: prevNodeId,
           toId: nodeId,
           limitingMbps: runningMin,
-          limitedBy: label,
-          notes,
+          // Use the label/notes of the actual limiting node, not the hop destination.
+          limitedBy: limitingLabel,
+          notes: limitingNotes,
         })
-      } else {
-        // First node (ISP) — initialise running minimum
-        runningMin = mbps
       }
     }
 
     if (hops.length === 0) continue
 
-    // Find the hop where the minimum first occurs (the bottleneck)
-    let bottleneckHopIdx = 0
-    let minSeen = Infinity
-    for (let i = 0; i < hops.length; i++) {
-      if (hops[i].limitingMbps < minSeen) {
-        minSeen = hops[i].limitingMbps
-        bottleneckHopIdx = i
-      }
-    }
-
-    const bottleneckNodeId = hops[bottleneckHopIdx].toId
+    // The bottleneck is the node that imposed the minimum — tracked directly above.
+    const bottleneckNodeId = limitingNodeId
     const bottleneckNode = nodeMap.get(bottleneckNodeId)!
-    const effectiveMbps = Math.round(minSeen)
+    const effectiveMbps = Math.round(runningMin)
 
     results.push({
       bottleneckNodeId,
