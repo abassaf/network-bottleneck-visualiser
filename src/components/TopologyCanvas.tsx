@@ -55,7 +55,11 @@ function getEdgeStyle(
   return { stroke: '#3f3f46', strokeWidth: 2, opacity: 0.3 }
 }
 
-export default function TopologyCanvas() {
+interface TopologyCanvasProps {
+  readonly?: boolean
+}
+
+export default function TopologyCanvas({ readonly = false }: TopologyCanvasProps) {
   const nodes = useTopologyStore((s) => s.nodes)
   const edges = useTopologyStore((s) => s.edges)
   const onNodesChange = useTopologyStore((s) => s.onNodesChange) as OnNodesChange<TopologyNode>
@@ -151,24 +155,31 @@ export default function TopologyCanvas() {
   )
 
   return (
-    <div ref={reactFlowWrapper} className="flex-1 h-full bg-zinc-950">
+    <div
+      ref={reactFlowWrapper}
+      className="flex-1 h-full bg-zinc-950"
+      style={readonly ? { pointerEvents: 'none' } : undefined}
+    >
       <ReactFlow
         nodes={nodes}
         edges={styledEdges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={onNodeClick}
-        onPaneClick={onPaneClick}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        onNodesChange={readonly ? undefined : onNodesChange}
+        onEdgesChange={readonly ? undefined : onEdgesChange}
+        onConnect={readonly ? undefined : onConnect}
+        onNodeClick={readonly ? undefined : onNodeClick}
+        onPaneClick={readonly ? undefined : onPaneClick}
+        onDragOver={readonly ? undefined : onDragOver}
+        onDrop={readonly ? undefined : onDrop}
         onInit={(instance) => {
           reactFlowInstance.current = instance as ReactFlowInstance<TopologyNode, TopologyEdge>
         }}
         nodeTypes={stableNodeTypes}
+        nodesDraggable={!readonly}
+        nodesConnectable={!readonly}
+        elementsSelectable={!readonly}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        deleteKeyCode="Delete"
+        deleteKeyCode={readonly ? null : 'Delete'}
         className="bg-zinc-950"
       >
         <Background variant={'dots' as never} gap={24} size={1} color="#27272a" />

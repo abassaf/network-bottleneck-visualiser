@@ -181,6 +181,8 @@ interface ComparisonStore {
   exitComparison: () => void
   updateAfterNode: (id: string, patch: Partial<NodeData>) => void
   setAfterResult: (result: BottleneckResult | null) => void
+  onAfterNodesChange: OnNodesChange<TopologyNode>
+  onAfterEdgesChange: OnEdgesChange<TopologyEdge>
 }
 
 export const useComparisonStore = create<ComparisonStore>((set, get) => ({
@@ -212,4 +214,12 @@ export const useComparisonStore = create<ComparisonStore>((set, get) => ({
   },
 
   setAfterResult: (result) => set({ afterResult: result }),
+
+  onAfterNodesChange: (changes: NodeChange<TopologyNode>[]) => {
+    set({ afterNodes: applyNodeChanges(changes, get().afterNodes) })
+  },
+
+  onAfterEdgesChange: (changes: EdgeChange<TopologyEdge>[]) => {
+    set({ afterEdges: applyEdgeChanges(changes, get().afterEdges) })
+  },
 }))

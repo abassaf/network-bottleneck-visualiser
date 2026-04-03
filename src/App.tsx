@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
+import { AnimatePresence } from 'framer-motion'
 import '@xyflow/react/dist/style.css'
 import TopologyCanvas from './components/TopologyCanvas'
 import NodeToolbar from './components/NodeToolbar'
 import ConfigPanel from './components/ConfigPanel'
 import ResultsPanel from './components/ResultsPanel'
 import PresetPicker from './components/PresetPicker'
-import { useTopologyStore, useAnalysisStore } from './store'
-import { analyseDevice } from './engine/bottleneckEngine'
+import ComparisonMode from './components/ComparisonMode'
+import { useTopologyStore, useAnalysisStore, useComparisonStore } from './store'
+import { analyseDevice, runBottleneckEngine } from './engine/bottleneckEngine'
 
 // ─── Analyse controls ─────────────────────────────────────────────────────────
 
@@ -113,9 +115,50 @@ function AnalyseControls() {
   )
 }
 
+// ─── Compare button ───────────────────────────────────────────────────────────
+
+function CompareButton() {
+  const nodes = useTopologyStore((s) => s.nodes)
+  const edges = useTopologyStore((s) => s.edges)
+  const analysisResult = useAnalysisStore((s) => s.result)
+  const isComparing = useComparisonStore((s) => s.isComparing)
+  const enterComparison = useComparisonStore((s) => s.enterComparison)
+  const exitComparison = useComparisonStore((s) => s.exitComparison)
+  const setAfterResult = useComparisonStore((s) => s.setAfterResult)
+
+  const handleClick = () => {
+    if (isComparing) {
+      exitComparison()
+      return
+    }
+    enterComparison(nodes, edges)
+    // Immediately seed afterResult matching the same target device
+    if (analysisResult) {
+      const engineResult = runBottleneckEngine({ nodes, edges })
+      if (engineResult.ok) {
+        const match = engineResult.results.find((r) => r.targetNodeId === analysisResult.targetNodeId) ?? null
+        setAfterResult(match)
+      }
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={!analysisResult && !isComparing}
+      className="rounded-lg bg-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-100 transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-40"
+      title={!analysisResult ? 'Run an analysis first to enable comparison mode' : undefined}
+    >
+      {isComparing ? 'Exit Compare' : 'Compare'}
+    </button>
+  )
+}
+
 // ─── App root ─────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const isComparing = useComparisonStore((s) => s.isComparing)
+
   return (
     <ReactFlowProvider>
       <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
@@ -143,16 +186,23 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <PresetPicker />
+            <CompareButton />
             <AnalyseControls />
           </div>
         </header>
 
-        <main className="flex flex-1 overflow-hidden">
-          <NodeToolbar />
-          <TopologyCanvas />
-          <ConfigPanel />
-          <ResultsPanel />
-        </main>
+        <AnimatePresence mode="wait">
+          {isComparing ? (
+            <ComparisonMode key="comparison" />
+          ) : (
+            <main key="main" className="flex flex-1 overflow-hidden">
+              <NodeToolbar />
+              <TopologyCanvas />
+              <ConfigPanel />
+              <ResultsPanel />
+            </main>
+          )}
+        </AnimatePresence>
       </div>
     </ReactFlowProvider>
   )
