@@ -2,10 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   type NodeMouseHandler,
-  type OnNodesChange,
-  type OnEdgesChange,
 } from '@xyflow/react'
 import { useComparisonStore, useAnalysisStore } from '../store'
 import { nodeTypes } from '../nodes'
@@ -52,8 +51,8 @@ export default function ComparisonCanvas() {
   const afterNodes = useComparisonStore((s) => s.afterNodes)
   const afterEdges = useComparisonStore((s) => s.afterEdges)
   const afterResult = useComparisonStore((s) => s.afterResult)
-  const onAfterNodesChange = useComparisonStore((s) => s.onAfterNodesChange) as OnNodesChange<TopologyNode>
-  const onAfterEdgesChange = useComparisonStore((s) => s.onAfterEdgesChange) as OnEdgesChange<TopologyEdge>
+  const onAfterNodesChange = useComparisonStore((s) => s.onAfterNodesChange)
+  const onAfterEdgesChange = useComparisonStore((s) => s.onAfterEdgesChange)
   const setAfterResult = useComparisonStore((s) => s.setAfterResult)
 
   const beforeTargetNodeId = useAnalysisStore((s) => s.result?.targetNodeId ?? null)
@@ -126,7 +125,7 @@ export default function ComparisonCanvas() {
 
   return (
     <div className="relative flex-1 h-full bg-zinc-950">
-      <ReactFlow
+      <ReactFlow<TopologyNode, TopologyEdge>
         nodes={afterNodes}
         edges={styledEdges}
         onNodesChange={onAfterNodesChange}
@@ -140,7 +139,7 @@ export default function ComparisonCanvas() {
         deleteKeyCode={null}
         className="bg-zinc-950"
       >
-        <Background variant={'dots' as never} gap={24} size={1} color="#27272a" />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#27272a" />
         <Controls className="[&>button]:bg-zinc-800 [&>button]:border-zinc-700 [&>button]:text-zinc-300 [&>button:hover]:bg-zinc-700" />
       </ReactFlow>
 

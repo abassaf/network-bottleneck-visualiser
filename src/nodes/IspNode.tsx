@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { IspNodeData } from '../types/topology'
 import BaseNode from './BaseNode'
+
+type IspFlowNode = Node<IspNodeData, 'isp'>
 
 const GlobeIcon = () => (
   <svg
@@ -19,13 +21,12 @@ const GlobeIcon = () => (
   </svg>
 )
 
-export default function IspNode(props: NodeProps) {
-  const data = props.data as IspNodeData
+export default function IspNode({ id, data }: NodeProps<IspFlowNode>) {
   const stat = `${data.downloadMbps} / ${data.uploadMbps} Mbps`
 
   return (
     <>
-      <BaseNode id={props.id} icon={<GlobeIcon />} label={data.label} stat={stat} />
+      <BaseNode id={id} icon={<GlobeIcon />} label={data.label} stat={stat} />
       <Handle type="source" position={Position.Bottom} />
     </>
   )

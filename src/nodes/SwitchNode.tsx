@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { SwitchNodeData } from '../types/topology'
 import BaseNode from './BaseNode'
+
+type SwitchFlowNode = Node<SwitchNodeData, 'switch'>
 
 const GridIcon = () => (
   <svg
@@ -20,14 +22,13 @@ const GridIcon = () => (
   </svg>
 )
 
-export default function SwitchNode(props: NodeProps) {
-  const data = props.data as SwitchNodeData
+export default function SwitchNode({ id, data }: NodeProps<SwitchFlowNode>) {
   const stat = `${data.portCount}× ${data.portSpeedMbps} Mbps`
 
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <BaseNode id={props.id} icon={<GridIcon />} label={data.label} stat={stat} />
+      <BaseNode id={id} icon={<GridIcon />} label={data.label} stat={stat} />
       <Handle type="source" position={Position.Bottom} />
     </>
   )
