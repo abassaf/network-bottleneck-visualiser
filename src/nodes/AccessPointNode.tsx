@@ -1,6 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import type { AccessPointNodeData } from '../types/topology'
 import BaseNode from './BaseNode'
+
+type AccessPointFlowNode = Node<AccessPointNodeData, 'accessPoint'>
 
 const WifiIcon = () => (
   <svg
@@ -27,14 +29,13 @@ const protocolLabel: Record<string, string> = {
   wifi6e: 'Wi-Fi 6E',
 }
 
-export default function AccessPointNode(props: NodeProps) {
-  const data = props.data as AccessPointNodeData
+export default function AccessPointNode({ id, data }: NodeProps<AccessPointFlowNode>) {
   const stat = `${protocolLabel[data.protocol] ?? data.protocol} · ${data.band}`
 
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <BaseNode id={props.id} icon={<WifiIcon />} label={data.label} stat={stat} />
+      <BaseNode id={id} icon={<WifiIcon />} label={data.label} stat={stat} />
       <Handle type="source" position={Position.Bottom} />
     </>
   )
